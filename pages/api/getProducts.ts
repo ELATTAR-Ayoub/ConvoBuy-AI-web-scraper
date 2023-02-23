@@ -16,16 +16,21 @@ const getProducts = async (inputValue: string) => {
       max_tokens: 550,
     });
   
+    if (!response.data.choices[0].text) {
+      // handle the case where the response is undefined
+      return [];
+    }
+  
     const products = response.data.choices[0].text.split('\n');
-
+  
     const productsArray = products[products.length - 1]
                           .split(',')
                           .map((i:any) => i.trim());
     console.log('productsArray');
     console.log(productsArray);
-                          
+  
     return productsArray;
-}
+  }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
     try {
