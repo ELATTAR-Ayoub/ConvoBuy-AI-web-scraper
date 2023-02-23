@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
+import ReactDOMServer from 'react-dom/server';
 import Image from 'next/image';
 
 // components
@@ -13,13 +14,6 @@ import styles from '@/styles/index';
 
 // constants
 import {suggestions} from '@/constants'
-
-// opanAI
-import { Configuration, OpenAIApi } from "openai";
-const configuration = new Configuration({
-  apiKey: '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',
-});
-const openai = new OpenAIApi(configuration);
 
 interface scriptData {
   productTitle: string;
@@ -84,7 +78,9 @@ const Hero = () => {
   const [productsFiltered, setProductsFiltered] = useState<scriptData[]>([]);
   const [selectedFilter, setSelectedFilter] = useState('All');
   const [inputValue, setInputValue] = useState('');
+  const [scrapValue, setScrapValue] = useState('');
   const [opanAiReply, setOpanAiReply] = useState('');
+  const [productsArr, setProductsArr] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [providers, setProviders] = useState(providersArr);
 
@@ -211,47 +207,90 @@ const Hero = () => {
     setInputValue('');
   }
 
-  const OpenAIReply = async (event: React.MouseEvent<HTMLButtonElement>  | React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+const OpenAIReply = async (event: React.MouseEvent<HTMLButtonElement>  | React.FormEvent<HTMLFormElement>) => {
+  event.preventDefault();
+  setLoading(true);
+  try {
+    fetch("/api/getConvo", {
+      method: "POST",
+      body: JSON.stringify({string: inputValue}),
+      headers: {
+          "Content-Type": "application/json"
+      }
+    }).then(res => res.json())
+    .then((data:any) => {
+      console.log('data.object');
+      console.log(data.object);
+      setOpanAiReply(data.object);
+      getProducts(data.object);
+      // setLoading(false);
+    })
+    .catch(error => {
+        console.log(error);
+        // setLoading(false);
+    });
+  } catch (error) {
+    console.log(error);
+    // setLoading(false);
+  }
+}
+
+const getProducts = async (response:string) => {
     setLoading(true);
     try {
-      const response = await openai.createCompletion({
-        model: "text-davinci-003",
-        prompt: inputValue,
-        temperature: 0,
-        max_tokens: 128,
+      fetch("/api/getProducts", {
+        method: "POST",
+        body: JSON.stringify({string: response}),
+        headers: {
+            "Content-Type": "application/json"
+        }
+      }).then(res => res.json())
+      .then((data:any) => {
+        setProductsArr(data.object);
+        setLoading(false);
+      })
+      .catch(error => {
+          console.log(error);
+          setLoading(false);
       });
-      if (response.data.choices[0].text) {setOpanAiReply(response.data.choices[0].text);}
-      // console.log(response);
-      setLoading(false);
     } catch (error) {
       console.log(error);
       setLoading(false);
     }
-  }
+}
 
-  function generateOptions(data:string) {
-    const options = data.split(/\n/).filter(Boolean);
-  
-    return options.map((option, index) => {
-      const [title, ...description] = option.split(':');
-      const displayTitle = title.trim();
-      const displayDescription = description.join(':').trim();
-      
-      return (
-        <li key={title} className={` mb-2`} onClick={() => searchProducts(displayTitle)}>
-          <span className=' cursor-pointer hover:bg-accent-color-77'>{displayTitle}</span>
-          {displayDescription && `: ${displayDescription}`}
-        </li>
+const highlightProducts = (openAiReply: string, productsArr: string[]) => {
+  const regex = new RegExp(`\\b(${productsArr.join('|')})\\b`, 'gi');
+
+  const sections = openAiReply.split('\\n\\n');
+
+  const replacedSections = sections.map((section) => {
+    const replacedSection = section.replace(regex, (match) => {
+      const handleClick = () => {
+        searchProducts(match);
+      };
+      const span = (
+        <span className="cursor-pointer linkHover" onClick={handleClick}>
+          {match}
+        </span>
       );
+      return ReactDOMServer.renderToString(span);
     });
-  }
 
-  const toggleActive = (index:number) => {
-    const updatedProviders = [...providers];
-    updatedProviders[index].active = !updatedProviders[index].active;
-    setProviders(updatedProviders);
-  };
+    return <div dangerouslySetInnerHTML={{ __html: replacedSection }} />;
+  });
+
+  return <>{replacedSections}</>;
+};
+
+
+
+
+const toggleActive = (index:number) => {
+  const updatedProviders = [...providers];
+  updatedProviders[index].active = !updatedProviders[index].active;
+  setProviders(updatedProviders);
+};
 
   return (
   <section className={`${styles.flexCenter} flex-col gap-8 relative overflow-hidden w-full my-4`} >
@@ -260,19 +299,33 @@ const Hero = () => {
       <Loader/>
     }
 
-    <form onSubmit={OpenAIReply} className={` relative ${styles.flexBetween} flex-col w-full `}>
-          <label aria-label='Search bar' className={` primary_label_form `}>
-              <input required type="text" placeholder='What do you think about buying?' value={inputValue} onChange={handleChange} className='search_input'  />
-          </label>
-          
-          <button aria-label="Search bar button" type="button" onClick={OpenAIReply} className={`absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-primary-grey-28 dark:bg-secondary-white transition-all ${styles.flexCenter} overflow-hidden w-10 h-10`} >
-              <SolidSvg width={'24px'} height={'24px'} className={'SVGB2W scale-110'} color={'#ACACBE'} path={'/send.svg'} />
-          </button>
-    </form>
+    <div className={`${styles.flexCenter} flex-col gap-2 relative overflow-hidden w-full`} >
+      <form onSubmit={OpenAIReply} className={` relative ${styles.flexBetween} flex-col w-full `}>
+            <label aria-label='Search bar' className={` primary_label_form `}>
+                <input required type="text" placeholder='What do you think about buying?' value={inputValue} onChange={handleChange} className='search_input'  />
+            </label>
+            
+            <button aria-label="Search bar button" type="button" onClick={OpenAIReply} className={`absolute right-2 top-1/2 -translate-y-1/2 rounded-full hover:bg-secondary-black dark:bg-secondary-white transition-all ${styles.flexCenter} overflow-hidden w-10 h-10`} >
+                <SolidSvg width={'24px'} height={'24px'} className={'SVGB2W scale-110'} color={'#ACACBE'} path={'/send.svg'} />
+            </button>
+      </form>
+
+      <form onSubmit={() => searchProducts(scrapValue)} className={` relative ${styles.flexBetween} flex-col w-full `}>
+            <label aria-label='Search bar' className={` primary_label_form `}>
+                <input required type="text" placeholder='Scrap Amazon Directly!' onChange={(event) => setScrapValue(event.target.value)} value={scrapValue} className='search_input'  />
+            </label>
+            
+            <button aria-label="Search bar button" type="button" onClick={() => searchProducts(scrapValue)} className={`absolute right-2 top-1/2 -translate-y-1/2 rounded-full hover:bg-secondary-black dark:bg-secondary-white transition-all ${styles.flexCenter} overflow-hidden w-10 h-10`} >
+                <SolidSvg width={'24px'} height={'24px'} className={'SVGB2W scale-110'} color={'#ACACBE'} path={'/send.svg'} />
+            </button>
+      </form>
+    </div>
+    
 
     <div className={` relative ${styles.flexBetween} w-full`}>
       {/* <p>{opanAiReply}</p> */}
-      <ol>{generateOptions(opanAiReply)}</ol>
+      {/* <ol>{generateOptions(opanAiReply)}</ol> */}
+      <p>{highlightProducts(opanAiReply, productsArr)}</p>
     </div>
 
     {(productsResults.length == 0) && <div className={` ${styles.flexCenter} flex-wrap w-full gap-6`}>
